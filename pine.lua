@@ -1,29 +1,23 @@
--- Pine Tree Macro v2.2 - FIXED: Tool Swing via ClickEvent + REAL Hive Convert (SpawnPos + Remote)
--- Load: loadstring(game:HttpGet("https://raw.githubusercontent.com/Daiyu13/usandourwork/refs/heads/main/pine.lua"))()
-
+-- Pine Tree Macro v2.3 - Simple Tool + Real Hive Convert (Atlas-style)
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
 
-local RS = ReplicatedStorage.Events
+local player = Players.LocalPlayer
 local hrp, hum
+
 local function getChar()
     if player.Character then
         hrp = player.Character:FindFirstChild("HumanoidRootPart")
         hum = player.Character:FindFirstChild("Humanoid")
-        return hrp and hum
     end
 end
 
-repeat task.wait(0.5) until getChar()
-print("v2.2 READY - Tool ClickEvent + SpawnPos Convert")
+repeat task.wait(0.5) until player.Character
+getChar()
+print("v2.3 LOADED - Tool swings + Hive convert")
 
-player.CharacterAdded:Connect(function()
-    task.wait(2)
-    getChar()
-    print("Respawned OK")
-end)
+player.CharacterAdded:Connect(function() task.wait(2); getChar(); print("Respawn OK") end)
 
 local pineSpots = {
     CFrame.new(-353.397, 68, -202.474),
@@ -35,18 +29,20 @@ local pineSpots = {
     CFrame.new(-309.298, 68, -188.580)
 }
 
-local function getRandomOffset()
-    return Vector3.new(math.random(-2,2), 0, math.random(-2,2))
-end
+local function getRandomOffset() return Vector3.new(math.random(-2,2), 0, math.random(-2,2)) end
 
-local function getSpawnPos()
-    local spawnPos = player:FindFirstChild("SpawnPos")
-    if spawnPos and spawnPos:IsA("Vector3Value") then
-        print("SpawnPos found:", spawnPos.Value)
-        return spawnPos.Value
+local function getHivePad()
+    local data = player:FindFirstChild("DataFolder")
+    if data and data:FindFirstChild("HiveLocation") then
+        local num = data.HiveLocation.Value  -- 1 to 6
+        print("Your hive slot:", num)
+        local hive = workspace.Hives:FindFirstChild("Hive" .. num)
+        if hive and hive:FindFirstChild("Converter") and hive.Converter:FindFirstChild("TopPad") then
+            return hive.Converter.TopPad.CFrame + Vector3.new(math.random(-1,1), 3, math.random(-1,1))
+        end
     end
-    print("No SpawnPos - fallback")
-    return hrp.Position
+    print("Hive not found - using fallback")
+    return hrp.CFrame
 end
 
 local function moveTo(target)
@@ -59,32 +55,27 @@ end
 
 local spotIndex = 1
 
--- MAIN LOOP
+-- MAIN FARM LOOP
 task.spawn(function()
     while true do
         if not hrp then task.wait(1); getChar(); continue end
 
-        -- POLLEN CHECK
+        -- POLLEN FULL? → HIVE
         local data = player:FindFirstChild("DataFolder")
         if data and data:FindFirstChild("CoreStats") then
             local stats = data.CoreStats
             local pollen = stats:FindFirstChild("Pollen")
-            local capacity = stats:FindFirstChild("Capacity")
-            if pollen and capacity then
-                local pct = (pollen.Value / capacity.Value) * 100
-                print("Pollen:", math.floor(pct), "%")
+            local cap = stats:FindFirstChild("Capacity")
+            if pollen and cap then
+                local pct = (pollen.Value / cap.Value) * 100
+                print("Pollen:", math.floor(pct) .. "%")
                 if pct >= 95 then
-                    print("FULL! CONVERTING...")
-                    local spawnPos = getSpawnPos()
-                    local hiveTarget = spawnPos + Vector3.new(0, 0, 9)  -- Offset for pad
-                    moveTo(CFrame.new(hiveTarget))
-                    task.wait(1)
-                    RS.PlayerHiveCommand:FireServer("ToggleHoneyMaking")  -- START CONVERT
-                    repeat
-                        task.wait(0.5)
-                        print("Converting... Pollen:", pollen.Value)
-                    until pollen.Value < capacity.Value * 0.1  -- UNTIL MOSTLY EMPTY
-                    RS.PlayerHiveCommand:FireServer("ToggleHoneyMaking")  -- STOP
+                    print("FULL → CONVERTING AT HIVE")
+                    moveTo(getHivePad())
+                    task.wait(1.5)
+                    ReplicatedStorage.Events.PlayerHiveCommand:FireServer("ToggleHoneyMaking")
+                    repeat task.wait(0.5) until pollen.Value < cap.Value * 0.1
+                    ReplicatedStorage.Events.PlayerHiveCommand:FireServer("ToggleHoneyMaking")
                     task.wait(2)
                     continue
                 end
@@ -92,51 +83,32 @@ task.spawn(function()
         end
 
         -- PATROL
-        local target = pineSpots[spotIndex]
+        moveTo(pineSpots[spotIndex])
         print("Spot", spotIndex)
-        moveTo(target)
         spotIndex = (spotIndex % #pineSpots) + 1
-        task.wait(0.5)
+        task.wait(0.6)
     end
 end)
 
--- TOOL SWING (Remote Equip + ClickEvent)
+-- TOOL SWING LOOP (simple & reliable)
 task.spawn(function()
-    local lastEquip = 0
-    local currentTool = nil
     while true do
-        if hrp and hum then
-            -- FIND TOOL IN BACKPACK
-            local backpackTool = nil
-            for _, item in player.Backpack:GetChildren() do
-                if item:IsA("Tool") then
-                    backpackTool = item
-                    break
+        if hum then
+            local tool = hum:FindFirstChildOfClass("Tool")
+            if not tool then
+                for _, t in player.Backpack:GetChildren() do
+                    if t:IsA("Tool") then
+                        hum:EquipTool(t)
+                        print("Equipped:", t.Name)
+                        break
+                    end
                 end
-            end
-            if backpackTool and (tick() - lastEquip > 3 or not currentTool) then
-                local toolName = backpackTool.Name  -- e.g. "Porcelain Dipper"
-                RS.ItemPackageEvent:InvokeServer("Equip", {
-                    Mute = false,
-                    Type = toolName,
-                    Category = "Collector"
-                })
-                print("Equipped:", toolName)
-                currentTool = toolName
-                lastEquip = tick()
-                task.wait(0.5)  -- Equip delay
-            end
-
-            -- SWING VIA CLICK EVENT
-            if currentTool then
-                local toolModel = workspace:FindFirstChild(player.Name) and workspace[player.Name]:FindFirstChild(currentTool)
-                if toolModel and toolModel:FindFirstChild("ClickEvent") then
-                    toolModel.ClickEvent:FireServer()
-                end
+            else
+                tool:Activate()   -- THIS is what actually swings Porcelain Dipper etc.
             end
         end
-        task.wait(math.random(20,40)/100)  -- 0.2-0.4s swings
+        task.wait(math.random(18, 35) / 100)  -- 0.18–0.35s human timing
     end
 end)
 
-print("v2.2 RUNNING - Pollen % prints + Tool swings + REAL convert!")
+print("Ready - watch console for pollen % and hive slot")
